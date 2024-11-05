@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "grpy"
+version = "0.1.0"
+description = ""
+authors = ["zrthstr <zrth1k@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+simple-graph-sqlite = "^2.1.0"
+
+[tool.poetry.scripts]
+grpy = "grpy.__main__:main"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
