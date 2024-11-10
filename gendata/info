@@ -1,0 +1,27 @@
+
+
+subfinder
+
+then add domain itself
+
+then dnsx 
+
+
+
+## concrete
+subfinder -dL dom -oD out
+
+## 
+subfinder -d fefe.de -oD fefe.de.subfinder.out
+# this create a dir
+
+
+## add the domain itself.. 
+echo 'fefe.de' >> fefe.de.subfinder.out/fefe.de.txt
+
+## get the data 
+dnsx -nc -recon -l fefe.de.subfinder.out/fefe.de.txt
+
+
+
+## we could also get it as -json and have or obmit the full reolver log

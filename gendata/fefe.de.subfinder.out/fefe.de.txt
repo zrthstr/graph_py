@@ -1,0 +1,11 @@
+a.mx.fefe.de
+www.fefe.de
+dl.fefe.de
+ptrace.fefe.de
+cov.fefe.de
+a.ns.fefe.de
+cvs.fefe.de
+b.ns.fefe.de
+blog.fefe.de
+bulk.fefe.de
+home.dyn.fefe.de

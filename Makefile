@@ -1,24 +1,27 @@
+POETRY = poetry
+RUN = $(POETRY) run
+APP = grpy
 
+.PHONY: all clean test install run stats clear reset
 
-new:
-	#python -m venv grpy
-	poetry new grpy
+all: install test
 
+clean:
+	rm -rf dist/
+	rm -rf *.egg-info
+	find . -type d -name __pycache__ -exec rm -rf {} +
+	find . -type f -name "*.pyc" -delete
 
+test: clear run stats
 
-activte:
-	#@echo "run: source grpy/bin/activate"
-	#@echo 'check: echo $$VIRTUAL_ENV'
-	poetry shell
-	# poetry deactivate
-
+install:
+	$(POETRY) install
 
 run:
-	@#poetry run python demo.py
-	@#poetry run grpy ## this needs configuring in  pyproject.toml [tool.poetry.scripts] grpy = "grpy.__main__:main"
-	@#rm recon.sqlite || true
-	poetry run python -m grpy
+	$(RUN) $(APP) ingest
 
+stats:
+	$(RUN) $(APP) stats
 
-add:
-	poetry add pendulum
+clear:
+	$(RUN) $(APP) clear

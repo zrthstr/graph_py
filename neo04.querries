@@ -1,0 +1,17 @@
+// Styling
+:style reset
+:style node.Domain {color: #FF4444, diameter: 80px, border-width: 3px, border-color: #CC0000, text-color-internal: #FFFFFF}
+:style node.DNSR {color: #44FF44, diameter: 80px, border-width: 3px, border-color: #00CC00, text-color-internal: #FFFFFF}
+:style node.DNSValue {color: #4444FF, diameter: 65px, border-width: 2px, border-color: #0000CC, text-color-internal: #FFFFFF}
+:style relationship {color: #A5ABB6, shaft-width: 3px, font-size: 12px, padding: 3px, text-color-external: #000000}
+
+
+## show
+MATCH (d:DNSR)-[r]->(target)
+RETURN d, r, target
+LIMIT 100;
+
+
+## all
+MATCH (n)-[r]->(m)
+RETURN n, r, m
