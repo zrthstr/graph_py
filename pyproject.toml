@@ -7,7 +7,7 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.12"
-simple-graph-sqlite = "^2.1.0"
+neo4j = "^5.26.0"
 
 [tool.poetry.scripts]
 grpy = "grpy.__main__:main"

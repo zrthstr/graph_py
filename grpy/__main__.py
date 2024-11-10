@@ -69,8 +69,15 @@ class DNSrecordManager:
                    {"name": new_record.name, "type": new_record.type_, "values": new_record.values})
 
         else:  # Record does not exist, insert a new one
-            db.execute("MERGE (a:DNSR {name: $name, type: $type, values: $values})",
-                   {"name": record.name, "type": record.type_, "values": record.values})
+            #db.execute("CREATE (a:DNSR {name: $name, type: $type, values: $values})",
+            #       {"name": record.name, "type": record.type_, "values": record.values})
+
+            db.execute("""
+                MATCH (d:Domain {name: $name})
+                CREATE (d)-[:HAS]->(a:DNSR {name: $name, type: $type, values: $values})""",
+                {"name": record.name, "type": record.type_, "values": record.values})
+
+
 
 
 class DomainManager:

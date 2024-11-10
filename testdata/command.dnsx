@@ -1,0 +1,1 @@
+dnsx -no-color -recon -l heise.de.txt -o heise.de.dnx
