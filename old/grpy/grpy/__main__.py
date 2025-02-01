@@ -38,12 +38,14 @@ def clear_data(*, db: Neo4jDB):
 def print_stats(*, db: Neo4jDB):
     """Print database statistics"""
     print("\nNode counts:")
-    result = db.execute(query="""
+    result = db.execute_many(
+        query="""
         MATCH (n)
         WITH labels(n)[0] as type, count(*) as count
         RETURN type + ': ' + toString(count) as output
         ORDER BY count DESC
-    """)
+        """
+    )
     
     for record in result:
         if isinstance(record, str):
@@ -52,12 +54,14 @@ def print_stats(*, db: Neo4jDB):
             print(record.values()[0])
     
     print("\nRelationship counts:")
-    rel_result = db.execute(query="""
+    rel_result = db.execute_many(
+        query="""
         MATCH ()-[r]->()
         WITH type(r) as type, count(*) as count
         RETURN type + ': ' + toString(count) as output
         ORDER BY count DESC
-    """)
+        """
+    )
     
     for record in rel_result:
         if isinstance(record, str):

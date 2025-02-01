@@ -1,0 +1,14 @@
+services:
+  neo4j:
+    image: neo4j:latest
+    volumes:
+        - ./persist/logs:/logs
+        - ./persist/config:/config
+        - ./persist/data:/data
+        - ./persist/plugin:/plugins
+    environment:
+        - NEO4J_AUTH=neo4j/neo4jneo4jneo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    restart: always
