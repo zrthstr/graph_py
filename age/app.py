@@ -1,8 +1,38 @@
 import json
 import age
+from rich.pretty import pprint
 
 #import psycopg2
 
+"""
+Graph Database Project for IT Infrastructure Mapping
+
+A tool to map and analyze IT infrastructure components including:
+- Servers
+- Domains and subdomains
+- DNS records
+- Networks and interfaces
+- Virtual hosts
+- Directories and web roots
+- Load balancers
+- CGI endpoints
+
+Currently implemented using Apache AGE on PostgreSQL.
+
+Data Collection:
+The system ingests data from various security and network scanning tools including:
+- subfinder
+- dnsx
+- nmap
+- masscan
+- dnsenum
+- dnsrecon
+
+Implementation:
+Data from these tools is stored in a directory-based structure and processed
+by this Python script using a ledger-style approach for consistent tracking
+and historical records.
+"""
 
 class DomainNode:
     def __init__(self, host, _input, source):
@@ -65,7 +95,7 @@ class NetGraph:
         query = """
             MATCH (r:DomainRoot {host: %s})
             CREATE (d:Domain {host: %s, source: %s})
-            CREATE (r)-[:CONNECTED_TO]->(d)
+            CREATE (r)-[:HAS_SUBDOMAIN]->(d)
             RETURN id(d)
             """
         ret = self.conn.execCypher(query, params=(domain.input, domain.host, domain.source))
@@ -123,13 +153,21 @@ class NetGraph:
         return ret.fetchall()
 
     def dump_nodes_with_rel(self):
-
         query = """
-        MATCH (r:DomainRoot)-[:CONNECTED_TO]->(d:Domain)
-        RETURN r.host, d.host
+        MATCH path=(r:DomainRoot)-[rel:HAS_SUBDOMAIN]->(d:Domain)
+        RETURN r, rel, d
         """
-        cursor = self.conn.execCypher(query, cols=["root_name VARCHAR", "domain_host VARCHAR"])
-        return cursor.fetchall()  # Returns list of (root_name, domain_host)
+        ret = self.conn.execCypher(query, cols=["root AGTYPE", "rel AGTYPE", "domain AGTYPE"])
+        return ret.fetchall()
+
+    def dump_everything(self):
+        # Get all paths in the graph
+        query = """
+        MATCH (n)-[r]->(m)
+        RETURN n, r, m
+        """
+        ret = self.conn.execCypher(query, cols=["node1 AGTYPE", "rel AGTYPE", "node2 AGTYPE"])
+        return ret.fetchall()
 
 
 if __name__ == "__main__":
@@ -144,9 +182,11 @@ if __name__ == "__main__":
 
     #a = ng.get_all_domain_nodes_and_rel()
 
-    print(ng.dump_nodes())
-    print("-" * 12)
-    print(ng.dump_nodes_with_rel())
+    pprint(ng.dump_nodes())
+    print("\n=== All Relationships ===")
+    pprint(ng.dump_nodes_with_rel())
+    #print("\n=== Everything in DB ===")
+    #pprint(ng.dump_everything())
 
     print("[i] Number of domains: ", ng.count_domain_node())
 
