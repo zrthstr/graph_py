@@ -1,5 +1,6 @@
 import json
 import age
+import time
 from rich.pretty import pprint
 
 #import psycopg2
@@ -35,13 +36,57 @@ and historical records.
 """
 
 class DomainNode:
-    def __init__(self, host, _input, source):
+    def __init__(self, host, _input, source, _id=None):
         self.host = host
         self.input = _input
         self.source = source
+        self.id = _id
+        
+    def get_subdomain_chain(self):
+        """Returns list of DomainNodes representing the subdomain hierarchy."""
+        if self.is_root():
+            print(f"[i] {self.host} is root domain")
+            return []
+            
+        if not self.host.endswith(self.input):
+            raise ValueError(f"Host {self.host} is not a subdomain of {self.input}")
+            
+        subdomain_part = self.host[:-len(self.input)-1]
+        parts = subdomain_part.split('.')
+        print(f"[i] subdomain parts for {self.host}: {parts}")
+        
+        # Build chain from right to left
+        nodes = []
+        current_parts = []
+        for part in reversed(parts):
+            current_parts.insert(0, part)
+            full_subdomain = '.'.join(current_parts) + '.' + self.input
+            # Mark intermediate nodes as implicit unless it's the final (original) domain
+            source = self.source if full_subdomain == self.host else "implicit"
+            nodes.append(DomainNode(full_subdomain, self.input, source))
+            print(f"[i] created chain node: {full_subdomain} (source: {source})")
+        return nodes
+
+    @classmethod
+    def from_age_vertex(cls, vertex, root_domain=None):
+        """
+        Create a DomainNode from an AGE vertex.
+        
+        Args:
+            vertex: AGE vertex object
+            root_domain: Optional root domain for input field
+        """
+        host = vertex.properties['host']
+        source = vertex.properties.get('source', 'unknown')
+        _input = root_domain if root_domain else host
+        return cls(host=host, _input=_input, source=source, _id=vertex.id)
 
     def __repr__(self):
-        return f"domain_node(host={self.host}, input={self.input}, source={self.source})"
+        return f"DomainNode(host={self.host}, input={self.input}, source={self.source})"
+
+    def is_root(self):
+        """Returns True if this node represents a root domain."""
+        return self.host == self.input
 
 
 def eat_dns_file(infile="../data/dns.out.jsonl",max=0):
@@ -73,9 +118,15 @@ class NetGraph:
         self.conn.close()
 
     def delete(self):
-        print("[-] RM'ing db")
-        age.deleteGraph(self.conn.connection, self.graph_name)
-        #self.close()
+        """Delete the entire graph and commit the changes."""
+        try:
+            print(f"[-] Deleting graph '{self.graph_name}'")
+            age.deleteGraph(self.conn.connection, self.graph_name)
+            self.conn.commit()
+            print("[+] Graph deleted successfully")
+        except Exception as e:
+            print(f"[!] Error deleting graph: {e}")
+            raise
 
     def exist_domain_node(self, domain: DomainNode):
         ret = self.conn.execCypher("MATCH (d:Domain {host: %s}) RETURN 1 LIMIT 1", params=(domain.host,))
@@ -86,24 +137,35 @@ class NetGraph:
         return bool(ret.fetchone())
 
     def insert_domain_node(self, domain: DomainNode):
-        print("[+] inserting domain_node")
-        self.ifnonex_insert_domain_root_node( domain)
-        #ret = self.conn.execCypher("CREATE (d:Domain {host: %s, source: %s}) RETURN id(d)",params=(domain.host,domain.source))
-        #ret_id = ret.fetchone()
-
-
+        print(f"[+] inserting domain_node: {domain}")
+        
+        # First ensure root domain exists
+        print(f"[+] ensuring root domain exists: {domain.input}")
         query = """
-            MATCH (r:DomainRoot {host: %s})
-            CREATE (d:Domain {host: %s, source: %s})
-            CREATE (r)-[:HAS_SUBDOMAIN]->(d)
-            RETURN id(d)
-            """
-        ret = self.conn.execCypher(query, params=(domain.input, domain.host, domain.source))
-        ret_id = ret.fetchone()
-        print(f"[+] inserted with id {ret_id}")
-
+            MERGE (r:DomainRoot {host: %s})
+            RETURN r
+        """
+        self.conn.execCypher(query, params=(domain.input,))
         self.conn.commit()
-        return ret_id
+        
+        # If this is just a root domain, we're done
+        if domain.is_root():
+            return True
+            
+        # Get and insert the subdomain chain
+        chain = domain.get_subdomain_chain()
+        for i, subdomain in enumerate(chain):
+            parent_host = domain.input if i == 0 else chain[i-1].host
+            print(f"[+] creating/linking: {subdomain.host} -> parent: {parent_host}")
+            
+            query = """
+            MATCH (p {host: %s})
+            MERGE (d:Domain {host: %s, source: %s})
+            MERGE (p)-[:HAS_SUBDOMAIN]->(d)
+            RETURN d
+            """
+            self.conn.execCypher(query, params=(parent_host, subdomain.host, subdomain.source))
+            self.conn.commit()
 
     def exists_domain_root_node(self, domain: DomainNode):
         ret = self.conn.execCypher("MATCH (r:DomainRoot {host: %s}) RETURN id(r)", params=(domain.input,))
@@ -153,12 +215,25 @@ class NetGraph:
         return ret.fetchall()
 
     def dump_nodes_with_rel(self):
+        """Raw dump of nodes with relationships from the database."""
         query = """
-        MATCH path=(r:DomainRoot)-[rel:HAS_SUBDOMAIN]->(d:Domain)
-        RETURN r, rel, d
+        MATCH path=(root:DomainRoot)-[:HAS_SUBDOMAIN*]->(sub:Domain)
+        WHERE sub.source <> 'implicit'
+        RETURN root, RELATIONSHIPS(path), sub, NODES(path)
         """
-        ret = self.conn.execCypher(query, cols=["root AGTYPE", "rel AGTYPE", "domain AGTYPE"])
+        ret = self.conn.execCypher(query, cols=["root AGTYPE", "rels AGTYPE", "sub AGTYPE", "nodes AGTYPE"])
         return ret.fetchall()
+
+    def dump_nodes_with_rel_as_objects(self):
+        """Convert database dump to domain objects."""
+        raw_data = self.dump_nodes_with_rel()
+        result = []
+        for row in raw_data:
+            root, rels, sub, nodes = row
+            root_node = DomainNode.from_age_vertex(root)
+            sub_node = DomainNode.from_age_vertex(sub, root_domain=root_node.host)
+            result.append((root_node, rels, sub_node))
+        return result
 
     def dump_everything(self):
         # Get all paths in the graph
@@ -169,8 +244,16 @@ class NetGraph:
         ret = self.conn.execCypher(query, cols=["node1 AGTYPE", "rel AGTYPE", "node2 AGTYPE"])
         return ret.fetchall()
 
+def rm_db():
+    ng = NetGraph()
+    ng.delete()
+    ng.close()
+    time.sleep(1)
+
 
 if __name__ == "__main__":
+    rm_db()
+
     ng = NetGraph()
 
     print("[i] Number of domains: ", ng.count_domain_node())
@@ -190,5 +273,4 @@ if __name__ == "__main__":
 
     print("[i] Number of domains: ", ng.count_domain_node())
 
-    #ng.delete()
     ng.close()

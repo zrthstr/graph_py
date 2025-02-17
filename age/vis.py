@@ -5,40 +5,35 @@ Visualization utilities for the domain graph data
 import networkx as nx
 from pyvis.network import Network
 from IPython.display import display, HTML
+from datetime import datetime
+import os
 
 def visualize_domain_graph(graph_data):
-    """
-    Create an interactive visualization of the domain graph using Pyvis.
-    
-    Args:
-        graph_data: List of tuples (root, relationship, domain) from dump_nodes_with_rel()
-    
-    Returns:
-        IPython HTML display object with interactive graph
-    """
-    # Create a NetworkX graph
+    """Create an interactive visualization of the domain hierarchy."""
     G = nx.DiGraph()
     
-    # Add nodes and edges from graph data
-    for row in graph_data:
-        root, rel, domain = row
-        G.add_node(root.properties['host'], type='root')
-        G.add_node(domain.properties['host'], type='subdomain')
-        G.add_edge(root.properties['host'], domain.properties['host'])
+    for root, rels, sub in graph_data:
+        # Add nodes and edges exactly as they are in the database
+        G.add_node(root.host, type='root')
+        G.add_node(sub.host, type='domain', source=sub.source)
+        G.add_edge(root.host, sub.host)
     
-    # Create interactive Pyvis network with remote CDN resources
-    net = Network(notebook=True, height='500px', width='100%', 
-                 directed=True, cdn_resources='remote')
+    net = Network(height='700px', width='100%', directed=True)
     net.from_nx(G)
     
-    # Style nodes based on type
     for node in net.nodes:
-        if G.nodes[node['id']]['type'] == 'root':
-            node['color'] = '#ff9999'  # Light red for root domains
-        else:
-            node['color'] = '#99ff99'  # Light green for subdomains
+        is_root = G.nodes[node['id']]['type'] == 'root'
+        node.update({
+            'color': '#FF0000' if is_root else '#0000FF',
+            'size': 30 if is_root else 20,
+            'label': node['id']
+        })
     
-    # Show the graph
-    net.show('domain_graph.html')
-    return display(HTML('domain_graph.html'))
+    filename = f'domain_graph_{datetime.now().strftime("%Y%m%d_%H%M%S")}.html'
+    try:
+        net.show(filename)
+        display(HTML(filename))
+        return filename
+    finally:
+        net.clear()
 
