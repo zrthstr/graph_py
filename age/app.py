@@ -2,6 +2,7 @@ import json
 import age
 import time
 from rich.pretty import pprint
+from itertools import islice
 
 #import psycopg2
 
@@ -36,70 +37,72 @@ and historical records.
 """
 
 class DomainNode:
-    def __init__(self, host, _input, source, _id=None):
+    def __init__(self, host, _input, source, is_implicit=False, is_root=False):
         self.host = host
         self.input = _input
         self.source = source
-        self.id = _id
-        
-    def get_subdomain_chain(self):
-        """Returns list of DomainNodes representing the subdomain hierarchy."""
-        if self.is_root():
-            print(f"[i] {self.host} is root domain")
-            return []
-            
-        if not self.host.endswith(self.input):
-            raise ValueError(f"Host {self.host} is not a subdomain of {self.input}")
-            
-        subdomain_part = self.host[:-len(self.input)-1]
-        parts = subdomain_part.split('.')
-        print(f"[i] subdomain parts for {self.host}: {parts}")
-        
-        # Build chain from right to left
-        nodes = []
-        current_parts = []
-        for part in reversed(parts):
-            current_parts.insert(0, part)
-            full_subdomain = '.'.join(current_parts) + '.' + self.input
-            # Mark intermediate nodes as implicit unless it's the final (original) domain
-            source = self.source if full_subdomain == self.host else "implicit"
-            nodes.append(DomainNode(full_subdomain, self.input, source))
-            print(f"[i] created chain node: {full_subdomain} (source: {source})")
-        return nodes
+        self.is_implicit = is_implicit
+        self.is_root = False
 
+    #def is_root(self):
+    #   return self.host == self.input
+    
+    def get_implicit_nodes(self):
+        # Skip the first part as it's our actual domain
+        parts = self.host.split('.')
+        root_parts = self.input.split('.')
+        subdomain_parts = parts[:-len(root_parts)] + [".".join(root_parts)]
+
+        print(f"[+] subdomain_parts: {subdomain_parts}")    
+        
+        return [
+            DomainNode(f"{part}.{self.input}", self.input, "implicit")
+            for part in subdomain_parts[1:]
+        ]
+
+    def get_node_DB_status(self):
+        """ can return:
+        implicit
+        not_in_db
+        in_db
+        """
+        pass
+
+        
     @classmethod
     def from_age_vertex(cls, vertex, root_domain=None):
-        """
-        Create a DomainNode from an AGE vertex.
-        
-        Args:
-            vertex: AGE vertex object
-            root_domain: Optional root domain for input field
-        """
         host = vertex.properties['host']
         source = vertex.properties.get('source', 'unknown')
         _input = root_domain if root_domain else host
-        return cls(host=host, _input=_input, source=source, _id=vertex.id)
+        is_root = vertex.properties.get('is_root', False)
+        is_implicit = vertex.properties.get('is_implicit', False)
+        return cls(host=host, _input=_input, source=source)
 
     def __repr__(self):
-        return f"DomainNode(host={self.host}, input={self.input}, source={self.source})"
+        return f"DomainNode(host={self.host}, input={self.input}, source={self.source}, is_implicit={self.is_implicit}, is_root={self.is_root})"
 
-    def is_root(self):
-        """Returns True if this node represents a root domain."""
-        return self.host == self.input
+def get_parent_domain_naive(domain: str) -> str:
+    """Get the immediate parent domain by removing leftmost part.
+    This function is naive, it does not handle multi levels TLDS
+    
+    Examples:
+        foo.bar.com -> bar.com
+        bar.com -> com
+        com -> raises ValueError
 
+    """
+    parts = domain.split('.')
+    if len(parts) < 2:
+        raise ValueError(f"Domain {domain} has no parent")
+    return '.'.join(parts[1:])
 
-def eat_dns_file(infile="../data/dns.out.jsonl",max=0):
+def eat_dns_file(infile="../data/dns.out.jsonl", max=0):
     with open(infile, 'r') as f:
-        for line in f:
-            max -=1
-            if max == 0:
-                break
+        lines = islice(f, max) if max > 0 else f
+        for line in lines:
             try:
                 data = json.loads(line.strip())
-                domain_node = DomainNode(data['host'], data['input'], data['source'])
-                #print(domain_node)
-                yield domain_node
+                yield DomainNode(data['host'], data['input'], data['source'])
             except json.JSONDecodeError:
                 print(f"Error decoding JSON: {line}")
             except KeyError as e:
@@ -108,147 +111,98 @@ def eat_dns_file(infile="../data/dns.out.jsonl",max=0):
 
 class NetGraph:
     def __init__(self, graph_name="test_graph", dsn="host=localhost port=5455 dbname=postgresDB user=postgresUser password=postgresPW"):
-
         self.graph_name = graph_name
-        ag = age.connect(graph=graph_name, dsn=dsn)
-        self.conn = ag
-
-    def close(self):
-        print("[-] closing db")
-        self.conn.close()
-
-    def delete(self):
-        """Delete the entire graph and commit the changes."""
-        try:
-            print(f"[-] Deleting graph '{self.graph_name}'")
-            age.deleteGraph(self.conn.connection, self.graph_name)
-            self.conn.commit()
-            print("[+] Graph deleted successfully")
-        except Exception as e:
-            print(f"[!] Error deleting graph: {e}")
-            raise
-
-    def exist_domain_node(self, domain: DomainNode):
-        ret = self.conn.execCypher("MATCH (d:Domain {host: %s}) RETURN 1 LIMIT 1", params=(domain.host,))
-        return bool(ret.fetchone())
-
-    def exist_identical_domain_node(self, domain: DomainNode):
-        ret = self.conn.execCypher("MATCH (d:Domain {host: %s, source: %s}) RETURN id(d)",params=(domain.host, domain.source))
-        return bool(ret.fetchone())
+        self.conn = age.connect(dsn=dsn, graph=self.graph_name)
 
     def insert_domain_node(self, domain: DomainNode):
-        print(f"[+] inserting domain_node: {domain}")
-        
-        # First ensure root domain exists
-        print(f"[+] ensuring root domain exists: {domain.input}")
-        query = """
-            MERGE (r:DomainRoot {host: %s})
-            RETURN r
+        """Insert a domain node and its relationships into the graph."""
+        if domain.host == domain.input:
+            pritn("////////////////////////// ROOOOT")
+            domain.is_root = True
+            
+        # Then create/update the subdomain
+        node_query = """
+            MERGE (d:Domain {host: %s})
+            SET d.source = %s,
+                d.is_implicit = %s,
+                d.is_root = %s
         """
-        self.conn.execCypher(query, params=(domain.input,))
-        self.conn.commit()
+        self.conn.execCypher(
+            node_query,
+            params=(
+                domain.host,
+                domain.source,
+                domain.is_implicit,
+                domain.is_root
+            )
+        )
         
-        # If this is just a root domain, we're done
-        if domain.is_root():
-            return True
-            
-        # Get and insert the subdomain chain
-        chain = domain.get_subdomain_chain()
-        for i, subdomain in enumerate(chain):
-            parent_host = domain.input if i == 0 else chain[i-1].host
-            print(f"[+] creating/linking: {subdomain.host} -> parent: {parent_host}")
-            
-            query = """
-            MATCH (p {host: %s})
-            MERGE (d:Domain {host: %s, source: %s})
-            MERGE (p)-[:HAS_SUBDOMAIN]->(d)
-            RETURN d
+        # Finally create the relationship if this is a subdomain
+        #if domain.host != domain.input:
+        if True:
+            ## we can be naive here, as we know get_implicit_nodes() does the thinking for us
+            parent = get_parent_domain_naive(domain.host)
+            print(f"[+] Creating relationship for {domain.host} -> {parent}")
+            rel_query = """
+            MATCH (root:Domain {host: %s})
+            MATCH (sub:Domain {host: %s})
+            MERGE (root)-[:HAS_SUBDOMAIN]->(sub)
             """
-            self.conn.execCypher(query, params=(parent_host, subdomain.host, subdomain.source))
-            self.conn.commit()
-
-    def exists_domain_root_node(self, domain: DomainNode):
-        ret = self.conn.execCypher("MATCH (r:DomainRoot {host: %s}) RETURN id(r)", params=(domain.input,))
-        return bool(ret.fetchone())
-
-    def ifnonex_insert_domain_root_node(self, domain: DomainNode):
-        print("[+] inserting domain root node if nonexistant")
-        if self.exists_domain_root_node(domain):
-            print("[i] domain root node found, skipping")
-            return
-        ret = self.conn.execCypher("CREATE (r:DomainRoot {host: %s}) RETURN id(r)", params=(domain.input,))
-        ret_id = ret.fetchone()
+            self.conn.execCypher(rel_query, params=(parent, domain.host))
+        
         self.conn.commit()
-        print(f"[+] inserted new DomainRoot {ret_id}")
-        return ret_id
-
-
-    def count_domain_node(self):
-        ret = self.conn.execCypher("MATCH (n:Domain) RETURN COUNT(DISTINCT n.host) ")
-        return ret.fetchone()[0]
 
     def sync_domain_node(self, domain: DomainNode):
-        print(f"[i] processing domainNode: {domain}")
-        if self.exist_domain_node(domain):
-            if self.exist_identical_domain_node(domain):
-                print("[i] domain node exists with same attribiutes")
-                return
-            else:
-                print("[i] domain node exsists but with other attribiutes")
-                raise Exception("Not implemented")
-                ## merge nodes!
-                return
-        print("[i] domain_node not found")
+        """Sync a domain node with the graph."""
+        for domain_implicit in domain.get_implicit_nodes():
+            domain_implicit.is_implicit = True
+            print(f"[+] Inserting implicit domain: {domain_implicit}")
+            self.insert_domain_node(domain_implicit)
         self.insert_domain_node(domain)
-        return
 
-    def get_all_domain_nodes_and_rel(self):
+    def count_domain_node(self):
+        """Count all domain nodes."""
+        query = "MATCH (d:Domain) RETURN count(d)"
+        result = self.conn.execCypher(query).fetchone()
+        return result[0]
+
+    def count_domain_relationships(self) -> int:
+        """Count the total number of relationships in the graph."""
+        query = "MATCH ()-[r:HAS_SUBDOMAIN]->() RETURN count(r) as count"
+        return self.conn.execCypher(query).fetchone()[0]
+
+    def dump_all(self):
+        """Get everything in the database."""
         query = """
-        MATCH (r:DomainRoot)-[:CONNECTED_TO]->(d:Domain)
-        RETURN r.host AS root_name, d.host AS domain_host
+        MATCH (n)
+        OPTIONAL MATCH (n)-[r]->(m)
+        RETURN n as source, type(r) as relationship, m as target
         """
-        pass
-
-    def dump_nodes(self):
-        query = "MATCH (n) RETURN n"
-        ret = self.conn.execCypher(query)
-        return ret.fetchall()
+        return self.conn.execCypher(query, cols=["source", "relationship", "target"]).fetchall()
 
     def dump_nodes_with_rel(self):
-        """Raw dump of nodes with relationships from the database."""
+        """Get all domain nodes and their relationships."""
         query = """
-        MATCH path=(root:DomainRoot)-[:HAS_SUBDOMAIN*]->(sub:Domain)
-        WHERE sub.source <> 'implicit'
-        RETURN root, RELATIONSHIPS(path), sub, NODES(path)
+        MATCH (n:Domain)
+        OPTIONAL MATCH (n)-[r:HAS_SUBDOMAIN]->(m:Domain)
+        RETURN n as root_node, r as relationships, m as sub_node
         """
-        ret = self.conn.execCypher(query, cols=["root AGTYPE", "rels AGTYPE", "sub AGTYPE", "nodes AGTYPE"])
-        return ret.fetchall()
+        return self.conn.execCypher(query, cols=["root_node", "relationships", "sub_node"]).fetchall()
 
-    def dump_nodes_with_rel_as_objects(self):
-        """Convert database dump to domain objects."""
-        raw_data = self.dump_nodes_with_rel()
-        result = []
-        for row in raw_data:
-            root, rels, sub, nodes = row
-            root_node = DomainNode.from_age_vertex(root)
-            sub_node = DomainNode.from_age_vertex(sub, root_domain=root_node.host)
-            result.append((root_node, rels, sub_node))
-        return result
+    def delete(self):
+        """Delete the graph."""
+        age.deleteGraph(self.conn.connection, self.graph_name)
+        self.conn.commit()
 
-    def dump_everything(self):
-        # Get all paths in the graph
-        query = """
-        MATCH (n)-[r]->(m)
-        RETURN n, r, m
-        """
-        ret = self.conn.execCypher(query, cols=["node1 AGTYPE", "rel AGTYPE", "node2 AGTYPE"])
-        return ret.fetchall()
+    def close(self):
+        """Close the database connection."""
+        self.conn.close()
 
 def rm_db():
     ng = NetGraph()
     ng.delete()
     ng.close()
-    time.sleep(1)
+    time.sleep(1)  # Allow time for AGE/PostgreSQL cleanup
 
 
 if __name__ == "__main__":
@@ -256,7 +210,8 @@ if __name__ == "__main__":
 
     ng = NetGraph()
 
-    print("[i] Number of domains: ", ng.count_domain_node())
+    print(f"[i] Number of domains: {ng.count_domain_node()}")
+    print(f"[i] Number of relationships: {ng.count_domain_relationships()}")
 
     for domain_node in eat_dns_file(max=10):
         #ng.sync_domain_node(domain_node)
@@ -265,12 +220,13 @@ if __name__ == "__main__":
 
     #a = ng.get_all_domain_nodes_and_rel()
 
-    pprint(ng.dump_nodes())
-    print("\n=== All Relationships ===")
+    #pprint(ng.dump_nodes())
+    print("\n=== All DomainNodes and DomainRelationships ===")
     pprint(ng.dump_nodes_with_rel())
-    #print("\n=== Everything in DB ===")
-    #pprint(ng.dump_everything())
+    print("\n=== Everything in DB ===")
+    pprint(ng.dump_all())
 
-    print("[i] Number of domains: ", ng.count_domain_node())
+    print(f"[i] Number of domains: {ng.count_domain_node()}")
+    print(f"[i] Number of relationships: {ng.count_domain_relationships()}")
 
     ng.close()
