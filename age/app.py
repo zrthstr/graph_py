@@ -48,17 +48,21 @@ class DomainNode:
     #   return self.host == self.input
     
     def get_implicit_nodes(self):
+        # If the host is the same as input, there are no implicit domains
+        if self.host == self.input:
+            assert("we actually need this" == "")
+            return []
+            
         # Skip the first part as it's our actual domain
         parts = self.host.split('.')
         root_parts = self.input.split('.')
         subdomain_parts = parts[:-len(root_parts)] + [".".join(root_parts)]
 
-        print(f"[+] subdomain_parts: {subdomain_parts}")    
-        
         return [
-            DomainNode(f"{part}.{self.input}", self.input, "implicit")
-            for part in subdomain_parts[1:]
+            DomainNode(".".join(subdomain_parts[i:]), self.input, "implicit")
+            for i in range(len(subdomain_parts))
         ]
+    
 
     def get_node_DB_status(self):
         """ can return:
@@ -76,7 +80,7 @@ class DomainNode:
         _input = root_domain if root_domain else host
         is_root = vertex.properties.get('is_root', False)
         is_implicit = vertex.properties.get('is_implicit', False)
-        return cls(host=host, _input=_input, source=source)
+        return cls(host=host, _input=_input, source=source, is_implicit=is_implicit, is_root=is_root)
 
     def __repr__(self):
         return f"DomainNode(host={self.host}, input={self.input}, source={self.source}, is_implicit={self.is_implicit}, is_root={self.is_root})"
@@ -117,8 +121,11 @@ class NetGraph:
     def insert_domain_node(self, domain: DomainNode):
         """Insert a domain node and its relationships into the graph."""
         if domain.host == domain.input:
-            pritn("////////////////////////// ROOOOT")
+            print("///////////////////////// ROOOOT")
             domain.is_root = True
+
+        print(f"[+] Inserting domain node: {domain}")
+        pprint(domain)
             
         # Then create/update the subdomain
         node_query = """
@@ -137,9 +144,7 @@ class NetGraph:
             )
         )
         
-        # Finally create the relationship if this is a subdomain
-        #if domain.host != domain.input:
-        if True:
+        if not domain.is_root:
             ## we can be naive here, as we know get_implicit_nodes() does the thinking for us
             parent = get_parent_domain_naive(domain.host)
             print(f"[+] Creating relationship for {domain.host} -> {parent}")
@@ -158,6 +163,7 @@ class NetGraph:
             domain_implicit.is_implicit = True
             print(f"[+] Inserting implicit domain: {domain_implicit}")
             self.insert_domain_node(domain_implicit)
+        print(f"[+] Inserting explicit domain: {domain}")
         self.insert_domain_node(domain)
 
     def count_domain_node(self):
@@ -216,6 +222,7 @@ if __name__ == "__main__":
     for domain_node in eat_dns_file(max=10):
         #ng.sync_domain_node(domain_node)
         #ng.insert_domain_node(domain_node)
+        print("-----------------------")
         ng.sync_domain_node(domain_node)
 
     #a = ng.get_all_domain_nodes_and_rel()
