@@ -8,74 +8,49 @@ class NetGraph:
         self.graph_name = graph_name
         self.conn = age.connect(dsn=dsn, graph=self.graph_name)
 
-    def insert_domain_node(self, domain: DomainNode):
-        if domain.host == domain.input:
-            domain.is_root = True
+    def sync_domain_node(self, domain: DomainNode):
+        """Synchronize a domain and its implicit parent chain to the graph database."""
+        print("[DEBUG] Processing domain chain:")
+        implicit_nodes = domain.get_implicit_nodes()
+        pprint(implicit_nodes)
+        
+        self._create_all_nodes(implicit_nodes)
+        self._create_all_relationships(implicit_nodes)
+        self.conn.commit()
 
-        print(f"[++] domain: {domain}")
-        pprint(domain)
+    def _create_all_nodes(self, domains):
+        """Create all domain nodes in the database."""
+        for index, domain in enumerate(domains):
+            domain.is_implicit = index > 0  # First node is not implicit
+            domain.is_root = domain.host == domain.input
+            print(f"[+] Creating node: {domain}")
             
-        node_query = """
-            MERGE (d:Domain {host: %s})
-            SET d.source = %s,
-                d.is_implicit = %s,
-                d.is_root = %s,
-                d.input = %s
-        """
-        self.conn.execCypher(
-            node_query,
-            params=(
+            self.conn.execCypher("""
+                MERGE (d:Domain {host: %s})
+                SET d.source = %s,
+                    d.is_implicit = %s,
+                    d.is_root = %s,
+                    d.input = %s
+            """, params=(
                 domain.host,
                 domain.source,
                 domain.is_implicit,
                 domain.is_root,
                 domain.input
-            )
-        )
-        
-        self.conn.commit()
+            ))
 
-    def link_domain_node(self, domain: DomainNode):
-        if domain.host == domain.input:
-            domain.is_root = True
-        print(f"[++] domainLink: {domain}")
-        pprint(domain)
-
-        if not domain.is_root:
-            parent = get_parent_domain_naive(domain.host)
-            print(f"[++] relationship for {parent} -> {domain.host}")
-            rel_query = """
-            MATCH (root:Domain {host: %s})
-            MATCH (sub:Domain {host: %s})
-            MERGE (root)-[:HAS_SUBDOMAIN]->(sub)
-            """
-            d = self.conn.execCypher(rel_query, params=(parent, domain.host)).fetchone()
-            print("DEBUG: ", d)
-        
-        self.conn.commit()
-
-        pass
-
-    def sync_domain_node(self, domain: DomainNode):
-
-        print("[DEBUG] domain_chain: ")
-        pprint(domain.get_implicit_nodes())
-        no_first = False
-        for domain_implicit in domain.get_implicit_nodes():
-            domain_implicit.is_implicit = no_first
-            no_first = True
-            print(f"[+] Inserting domain: {domain_implicit}")
-            self.insert_domain_node(domain_implicit)
-
-        no_first = False
-        for d in domain.get_implicit_nodes():
-            d.is_implicit = no_first
-            print(f"[+] Linking domains: {d}")
-            self.link_domain_node(d)
-
-
-
-
+    def _create_all_relationships(self, domains):
+        """Create parent-child relationships between domain nodes."""
+        for domain in domains:
+            if not domain.is_root:
+                parent = get_parent_domain_naive(domain.host)
+                print(f"[+] Creating relationship: {parent} -> {domain.host}")
+                
+                self.conn.execCypher("""
+                    MATCH (root:Domain {host: %s})
+                    MATCH (sub:Domain {host: %s})
+                    MERGE (root)-[:HAS_SUBDOMAIN]->(sub)
+                """, params=(parent, domain.host))
 
     def count_domain_node(self):
         query = "MATCH (d:Domain) RETURN count(d)"
