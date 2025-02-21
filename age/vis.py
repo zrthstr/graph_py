@@ -1,35 +1,42 @@
 import networkx as nx
 from pyvis.network import Network
-from IPython.display import display, HTML
+from IPython.display import HTML, display
 from datetime import datetime
-import os
 
 def visualize_domain_graph(graph_data):
     """Create an interactive visualization of the domain hierarchy."""
     G = nx.DiGraph()
     
-    for root, rels, sub in graph_data:
-        # Add nodes and edges exactly as they are in the database
-        G.add_node(root.host, type='root')
-        G.add_node(sub.host, type='domain', source=sub.source)
-        G.add_edge(root.host, sub.host)
+    # Process each tuple in the data
+    for root_vertex, edge, sub_vertex in graph_data:
+        root_host = root_vertex.properties['host']
+        root_is_root = root_vertex.properties['is_root']
+        
+        # Add root node
+        G.add_node(root_host, is_root=root_is_root)
+        
+        # If we have both edge and sub_vertex, add the relationship
+        if edge and sub_vertex:
+            sub_host = sub_vertex.properties['host']
+            G.add_node(sub_host, is_root=False)
+            G.add_edge(root_host, sub_host)
     
-    net = Network(height='700px', width='100%', directed=True)
+    # Create visualization
+    net = Network(notebook=True, height='700px', width='100%', directed=True, cdn_resources='remote')
     net.from_nx(G)
     
+    # Style nodes
     for node in net.nodes:
-        is_root = G.nodes[node['id']]['type'] == 'root'
+        is_root = G.nodes[node['id']]['is_root']
         node.update({
             'color': '#FF0000' if is_root else '#0000FF',
             'size': 30 if is_root else 20,
             'label': node['id']
         })
     
+    # Generate HTML file and display it
     filename = f'domain_graph_{datetime.now().strftime("%Y%m%d_%H%M%S")}.html'
-    try:
-        net.show(filename)
-        display(HTML(filename))
-        return filename
-    finally:
-        net.clear()
+    net.write_html(filename)
+    display(HTML(filename))
+    return filename
 
