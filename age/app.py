@@ -48,12 +48,8 @@ class DomainNode:
     #   return self.host == self.input
     
     def get_implicit_nodes(self):
-        # If the host is the same as input, there are no implicit domains
-        if self.host == self.input:
-            assert("we actually need this" == "")
-            return []
-            
         # Skip the first part as it's our actual domain
+        # and avoid spliting the root (if the root itself contains dots)   
         parts = self.host.split('.')
         root_parts = self.input.split('.')
         subdomain_parts = parts[:-len(root_parts)] + [".".join(root_parts)]
@@ -194,7 +190,7 @@ class NetGraph:
         RETURN n as root_node, r as relationships, m as sub_node
         """
         return self.conn.execCypher(query, cols=["root_node", "relationships", "sub_node"]).fetchall()
-
+    
     def delete(self):
         """Delete the graph."""
         age.deleteGraph(self.conn.connection, self.graph_name)
