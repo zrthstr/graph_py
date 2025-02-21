@@ -1,12 +1,29 @@
 import age
 from rich.pretty import pprint
 from domain_node import DomainNode
+from dns_reccord_node import DNSReccordNode
 from dns_utils import get_parent_domain_naive
 
 class NetGraph:
     def __init__(self, graph_name="test_graph", dsn="host=localhost port=5455 dbname=postgresDB user=postgresUser password=postgresPW"):
         self.graph_name = graph_name
         self.conn = age.connect(dsn=dsn, graph=self.graph_name)
+
+
+    def sync_dnsr_node(self, dnsr: DNSReccordNode):
+        """Synchronize a dnsr and its implicit parent chain to the graph database."""
+        print("[DEBUG] Processing dnsr chain:")
+        pprint(dnsr)
+
+        self._create_all_dnsr_nodes(dnsr)
+        self._create_all_dnsr_relationships(dnsr)
+        self.conn.commit()
+
+    def _create_all_dnsr_nodes(self, dnsr: DNSReccordNode):
+        pass
+
+    def _create_all_dnsr_relationships(self, dnsr: DNSReccordNode):
+        pass
 
     def sync_domain_node(self, domain: DomainNode):
         """Synchronize a domain and its implicit parent chain to the graph database."""
@@ -86,6 +103,12 @@ class NetGraph:
             for node in nodes
         ]
     
+    def dump_domains_host(self):
+        query = "MATCH (d:Domain) RETURN d.host"
+        back = self.conn.execCypher(query, cols=["d"]).fetchall()
+        return [t[0] for t in back]
+    
+
     def delete(self):
         age.deleteGraph(self.conn.connection, self.graph_name)
         self.conn.commit()

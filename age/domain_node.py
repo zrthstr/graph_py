@@ -29,4 +29,11 @@ class DomainNode:
         return cls(host=host, _input=_input, source=source, is_implicit=is_implicit, is_root=is_root)
 
     def __repr__(self):
-        return f"DomainNode(host={self.host}, input={self.input}, source={self.source}, is_implicit={self.is_implicit}, is_root={self.is_root})" 
+        return (
+            f"DomainNode("
+            f"host={self.host}, "
+            f"input={self.input}, "
+            f"source={self.source}, "
+            f"is_implicit={self.is_implicit}, "
+            f"is_root={self.is_root})"
+        ) 
