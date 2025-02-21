@@ -17,8 +17,9 @@ if __name__ == "__main__":
     print(f"[i] Number of domains: {ng.count_domain_node()}")
     print(f"[i] Number of relationships: {ng.count_domain_relationships()}")
 
-    for domain_node in eat_dns_file(max=10):
+    for domain_node in eat_dns_file(max=1):
         print("-----------------------")
+        print("[+] processing domain_node: ", domain_node)
         ng.sync_domain_node(domain_node)
 
     print("\n=== All DomainNodes and DomainRelationships ===")

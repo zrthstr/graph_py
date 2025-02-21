@@ -12,14 +12,15 @@ class NetGraph:
         if domain.host == domain.input:
             domain.is_root = True
 
-        print(f"[+] Inserting domain node: {domain}")
+        print(f"[++] domain: {domain}")
         pprint(domain)
             
         node_query = """
             MERGE (d:Domain {host: %s})
             SET d.source = %s,
                 d.is_implicit = %s,
-                d.is_root = %s
+                d.is_root = %s,
+                d.input = %s
         """
         self.conn.execCypher(
             node_query,
@@ -27,29 +28,54 @@ class NetGraph:
                 domain.host,
                 domain.source,
                 domain.is_implicit,
-                domain.is_root
+                domain.is_root,
+                domain.input
             )
         )
         
+        self.conn.commit()
+
+    def link_domain_node(self, domain: DomainNode):
+        if domain.host == domain.input:
+            domain.is_root = True
+        print(f"[++] domainLink: {domain}")
+        pprint(domain)
+
         if not domain.is_root:
             parent = get_parent_domain_naive(domain.host)
-            print(f"[+] Creating relationship for {domain.host} -> {parent}")
+            print(f"[++] relationship for {parent} -> {domain.host}")
             rel_query = """
             MATCH (root:Domain {host: %s})
             MATCH (sub:Domain {host: %s})
             MERGE (root)-[:HAS_SUBDOMAIN]->(sub)
             """
-            self.conn.execCypher(rel_query, params=(parent, domain.host))
+            d = self.conn.execCypher(rel_query, params=(parent, domain.host)).fetchone()
+            print("DEBUG: ", d)
         
         self.conn.commit()
 
+        pass
+
     def sync_domain_node(self, domain: DomainNode):
+
+        print("[DEBUG] domain_chain: ")
+        pprint(domain.get_implicit_nodes())
+        no_first = False
         for domain_implicit in domain.get_implicit_nodes():
-            domain_implicit.is_implicit = True
-            print(f"[+] Inserting implicit domain: {domain_implicit}")
+            domain_implicit.is_implicit = no_first
+            no_first = True
+            print(f"[+] Inserting domain: {domain_implicit}")
             self.insert_domain_node(domain_implicit)
-        print(f"[+] Inserting explicit domain: {domain}")
-        self.insert_domain_node(domain)
+
+        no_first = False
+        for d in domain.get_implicit_nodes():
+            d.is_implicit = no_first
+            print(f"[+] Linking domains: {d}")
+            self.link_domain_node(d)
+
+
+
+
 
     def count_domain_node(self):
         query = "MATCH (d:Domain) RETURN count(d)"
