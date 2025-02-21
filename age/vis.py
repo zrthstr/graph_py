@@ -1,7 +1,3 @@
-"""
-Visualization utilities for the domain graph data
-"""
-
 import networkx as nx
 from pyvis.network import Network
 from IPython.display import display, HTML
