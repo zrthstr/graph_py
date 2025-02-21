@@ -72,7 +72,7 @@ class NetGraph:
     def dump_nodes_with_rel(self):
         query = """
         MATCH (n:Domain)
-        OPTIONAL MATCH (n)-[r:HAS_SUBDOMAIN]->(m:Domain)
+        MATCH (n)-[r:HAS_SUBDOMAIN]->(m:Domain)
         RETURN n as root_node, r as relationships, m as sub_node
         """
         return self.conn.execCypher(query, cols=["root_node", "relationships", "sub_node"]).fetchall()
