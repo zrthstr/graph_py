@@ -11,8 +11,7 @@ class NetGraph:
 
 
     def sync_dnsr_node(self, dnsr: DNSReccordNode):
-        """Synchronize a dnsr and its implicit parent chain to the graph database."""
-        print("[DEBUG] Processing dnsr chain:")
+        print("[DEBUG] Processing dnsr:")
         pprint(dnsr)
 
         self._create_all_dnsr_nodes(dnsr)
@@ -20,10 +19,21 @@ class NetGraph:
         self.conn.commit()
 
     def _create_all_dnsr_nodes(self, dnsr: DNSReccordNode):
-        pass
+        self.conn.execCypher("""
+            MERGE (d:DNSReccord {host: %s})
+            SET d.timestamp = %s,
+                d.status_code = %s
+        """, params=(dnsr.host, dnsr.timestamp, dnsr.status_code))
+        print(f"[+] Created dnsr node: {dnsr.host}")
+
 
     def _create_all_dnsr_relationships(self, dnsr: DNSReccordNode):
-        pass
+        self.conn.execCypher("""
+            MATCH (d:DNSReccord {host: %s})
+            MATCH (r:Domain {host: %s})
+            MERGE (d)-[:HAS_DNSR]->(r)
+        """, params=(dnsr.host, dnsr.host))
+        print(f"[+] Created dnsr relationship: {dnsr.host}")
 
     def sync_domain_node(self, domain: DomainNode):
         """Synchronize a domain and its implicit parent chain to the graph database."""
@@ -31,11 +41,11 @@ class NetGraph:
         implicit_nodes = domain.get_implicit_nodes()
         pprint(implicit_nodes)
         
-        self._create_all_nodes(implicit_nodes)
-        self._create_all_relationships(implicit_nodes)
+        self._create_all_domain_nodes(implicit_nodes)
+        self._create_all_domain_relationships(implicit_nodes)
         self.conn.commit()
 
-    def _create_all_nodes(self, domains):
+    def _create_all_domain_nodes(self, domains):
         """Create all domain nodes in the database."""
         for index, domain in enumerate(domains):
             domain.is_implicit = index > 0  # First node is not implicit
@@ -56,7 +66,7 @@ class NetGraph:
                 domain.input
             ))
 
-    def _create_all_relationships(self, domains):
+    def _create_all_domain_relationships(self, domains):
         """Create parent-child relationships between domain nodes."""
         for domain in domains:
             if not domain.is_root:

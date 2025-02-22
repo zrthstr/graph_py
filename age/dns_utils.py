@@ -49,7 +49,8 @@ def eat_dnsr_file(infile="../data/dnsr.out.jsonl", max=0):
                     ptr=data.get('ptr', []),
                     spf=data.get('spf', []),
                     dkim=data.get('dkim', []),
-                    dmarc=data.get('dmarc', [])
+                    dmarc=data.get('dmarc', []),
+                    timestamp=data.get('timestamp')
                 )
                 
                 yield domain
