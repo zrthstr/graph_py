@@ -31,7 +31,7 @@ if __name__ == "__main__":
             ng.sync_domain_node(domain_node)
 
         print("\n=== All DomainNodes and DomainRelationships ===")
-        pprint(ng.dump_nodes_with_rel())
+        pprint(ng.dump_domain_nodes_with_rel())
         print("\n=== Everything in DB ===")
         pprint(ng.dump_all())
 
@@ -48,7 +48,7 @@ if __name__ == "__main__":
         ng = NetGraph()
         for dnsr_node in eat_dnsr_file(max=111):
             print("-----------------------")
-            print("[+] processing dnsr_node: ", dnsr_node)
+            #print("[+] processing dnsr_node: ", dnsr_node)
             ng.sync_dnsr_node(dnsr_node)
 
         ng.close()

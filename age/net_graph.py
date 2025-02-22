@@ -31,7 +31,7 @@ class NetGraph:
         self.conn.execCypher("""
             MATCH (d:DNSReccord {host: %s})
             MATCH (r:Domain {host: %s})
-            MERGE (d)-[:HAS_DNSR]->(r)
+            MERGE (r)-[:HAS_DNSR]->(d)
         """, params=(dnsr.host, dnsr.host))
         print(f"[+] Created dnsr relationship: {dnsr.host}")
 
@@ -95,8 +95,16 @@ class NetGraph:
         RETURN n as source, type(r) as relationship, m as target
         """
         return self.conn.execCypher(query, cols=["source", "relationship", "target"]).fetchall()
+    
+    def dump_dnsr_nodes_with_rel(self):
+        query = """
+        MATCH (n:DNSReccord)
+        MATCH (m:Domain)-[r:HAS_DNSR]->(n)
+        RETURN n as dnsr_node, r as relationships, m as domain_node
+        """
+        return self.conn.execCypher(query, cols=["dnsr_node", "relationships", "domain_node"]).fetchall()
 
-    def dump_nodes_with_rel(self):
+    def dump_domain_nodes_with_rel(self):
         query = """
         MATCH (n:Domain)
         MATCH (n)-[r:HAS_SUBDOMAIN]->(m:Domain)
@@ -104,21 +112,11 @@ class NetGraph:
         """
         return self.conn.execCypher(query, cols=["root_node", "relationships", "sub_node"]).fetchall()
 
-    def dump_nodes_with_rel_as_objects(self):
-        nodes = self.dump_nodes_with_rel()
-        return [
-            (DomainNode.from_age_vertex(node[0]),
-             node[1],
-             DomainNode.from_age_vertex(node[2]) if node[2] else None)
-            for node in nodes
-        ]
-    
     def dump_domains_host(self):
         query = "MATCH (d:Domain) RETURN d.host"
         back = self.conn.execCypher(query, cols=["d"]).fetchall()
         return [t[0] for t in back]
     
-
     def delete(self):
         age.deleteGraph(self.conn.connection, self.graph_name)
         self.conn.commit()
