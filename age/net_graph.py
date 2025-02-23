@@ -23,7 +23,7 @@ class NetGraph:
             MERGE (d:DNSReccord {host: %s})
             SET d.timestamp = %s,
                 d.status_code = %s
-        """, params=(dnsr.host, dnsr.timestamp, dnsr.status_code))
+            """, params=(dnsr.host, dnsr.timestamp, dnsr.status_code))
         print(f"[+] Created dnsr node: {dnsr.host}")
 
 
@@ -32,7 +32,7 @@ class NetGraph:
             MATCH (d:DNSReccord {host: %s})
             MATCH (r:Domain {host: %s})
             MERGE (r)-[:HAS_DNSR]->(d)
-        """, params=(dnsr.host, dnsr.host))
+            """, params=(dnsr.host, dnsr.host))
         print(f"[+] Created dnsr relationship: {dnsr.host}")
 
     def sync_domain_node(self, domain: DomainNode):
@@ -104,6 +104,51 @@ class NetGraph:
         """
         return self.conn.execCypher(query, cols=["dnsr_node", "relationships", "domain_node"]).fetchall()
 
+    def mark_dnsr_node_as_tried(self, host: str) -> str:
+        query = """
+        MATCH (n:DNSReccord {host: %s})
+        RETURN n
+        """
+        result = self.conn.execCypher(query, params=(host,)).fetchone()
+        self.conn.commit()
+        
+        if not result:
+            print("DEBUG:......")
+            # Create DNS record node and link it to domain
+            create_query = """
+            MATCH (d:Domain {host: %s})
+            CREATE (n:DNSReccord {host: %s, status_code: 'NO_RETURN', timestamp: 0})
+            CREATE (d)-[:HAS_DNSR]->(n)
+            RETURN d, n
+            """
+            created = self.conn.execCypher(create_query, params=(host, host), cols=["d", "n"]).fetchone()
+        
+            if not created:
+                print(f"[-] Query failed for: {host}")
+                return "not_found"
+                
+            domain, dnsr = created
+            if not domain:
+                print(f"[-] Domain not found: {host}")
+                return "not_found"
+                
+            print(f"[+] Found domain: {host}")
+            if not dnsr:
+                print(f"[-] Failed to create DNSR node for: {host}")
+                return "not_found"
+                
+            print(f"[+] Created DNSR node and relationship for: {host}")
+            return "not_found"
+        return "found"
+    
+    
+    def dump_dnsr_nodes_with_status_code(self):
+        query = """
+        MATCH (n:DNSReccord)
+        RETURN n
+        """
+        return self.conn.execCypher(query, cols=["n"]).fetchall()
+
     def dump_domain_nodes_with_rel(self):
         query = """
         MATCH (n:Domain)
@@ -119,6 +164,11 @@ class NetGraph:
     
     def delete(self):
         age.deleteGraph(self.conn.connection, self.graph_name)
+        self.conn.commit()
+
+    def delete_all_dnsr_nodes(self):
+        query = "MATCH (n:DNSReccord) DETACH DELETE n"
+        self.conn.execCypher(query)
         self.conn.commit()
 
     def close(self):

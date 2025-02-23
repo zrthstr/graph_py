@@ -58,8 +58,9 @@ def eat_dnsr_file(infile="../data/dnsr.out.jsonl", max=0):
             except json.JSONDecodeError:
                 print(f"Error decoding JSON: {line}")
 
-
-
+def eat_dnsr_cmd(infile="../out/dns.txt", max=0) -> set[str]:
+    with open(infile, 'r') as f:
+        return {line.strip() for line in f}
 
 def output_domains(domains_text: list[str], filename: str = "../out/dns.txt"):
     with open(filename, "w") as f:
